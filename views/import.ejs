@@ -1,0 +1,141 @@
+<%- include('_header') %>
+
+    <div class="container"
+        style="max-width:600px; margin:40px auto; background:#6fbad8; border-radius:10px; box-shadow:0 2px 8px rgba(0,0,0,0.05); padding:32px;">
+        
+        <center>
+        
+        <h2 style="text-align:center; margin-bottom:24px;">Customer Import</h2>
+
+        </center>
+        
+        <div id="customerCount" style="text-align:center; margin-bottom:16px;">
+            Total number of records in the database: <span class="bold" id="count">0</span>
+        </div>
+        <form id="importForm" onsubmit="event.preventDefault(); handleImport();" style="text-align:center;">
+            <label for="csvFile" style="display:block; margin-bottom:8px;">Select a file with customers for Database
+                Insert:</label>
+            <input type="file" id="csvFile" accept=".csv" required style="margin-bottom:8px;">
+            <span id="fileError" class="error" style="display:block; margin-bottom:8px;"></span>
+            <button type="submit"
+                style="padding: 12px 28px; font-size: 1rem; background: #1976d2; color: #fff; border: none; border-radius: 5px; font-weight: 600; cursor: pointer;">
+                Import Customers
+            </button>
+        </form>
+        <div id="importProgress" class="hidden" style="text-align:center; margin-top:16px;">Import in progress...</div>
+        <div id="importSummary" class="summary hidden" style="margin-top:16px;"></div>
+        <div id="errorSummary" class="summary hidden" style="margin-top:16px;"></div>
+    </div>
+
+    <script>
+        let customers = [];
+        let customerIdSet = new Set();
+
+        updateCustomerCount();
+
+        function updateCustomerCount() {
+            document.getElementById('count').textContent = customers.length;
+        }
+
+        async function handleImport() {
+            const fileInput = document.getElementById('csvFile');
+            const fileError = document.getElementById('fileError');
+            const progress = document.getElementById('importProgress');
+            const importSummary = document.getElementById('importSummary');
+            const errorSummary = document.getElementById('errorSummary');
+
+            fileError.textContent = '';
+            importSummary.classList.add('hidden');
+            errorSummary.classList.add('hidden');
+
+            if (!fileInput.files[0]) {
+                fileError.textContent = 'Please select a file';
+                return;
+            }
+
+            progress.classList.remove('hidden');
+
+            const results = await processFile(fileInput.files[0]);
+
+            progress.classList.add('hidden');
+
+            customers.push(...results.successfulImports);
+            results.finalCount = customers.length;
+            updateCustomerCount();
+
+            showImportSummary(results);
+            if (results.errors.length > 0) {
+                showErrorSummary(results);
+            }
+        }
+
+        async function processFile(file) {
+            const reader = new FileReader();
+            const result = {
+                originalCount: customers.length,
+                successfulImports: [],
+                errors: [],
+                totalProcessed: 0
+            };
+
+            return new Promise((resolve) => {
+                reader.onload = (e) => {
+                    const text = e.target.result;
+                    const lines = text.split('\n').filter(line => line.trim().length > 0);
+
+                    for (const line of lines) {
+                        // Expecting: id,first_name,last_name,state,sales_ytd,previous_years_sales
+                        const [id, first_name, last_name, state, sales_ytd, previous_years_sales] = line.split(',').map(field => {
+                            const val = field.trim();
+                            return val === 'Null' ? null : val;
+                        });
+
+                        result.totalProcessed++;
+
+                        if (customerIdSet.has(id)) {
+                            result.errors.push({ id, error: 'Duplicate customer ID' });
+                            continue;
+                        }
+
+                        if (!id || !first_name || !last_name || !state || !sales_ytd || !previous_years_sales) {
+                            result.errors.push({ id: id || 'Missing ID', error: 'Missing required fields' });
+                            continue;
+                        }
+
+                        customerIdSet.add(id);
+                        result.successfulImports.push({ id, first_name, last_name, state, sales_ytd, previous_years_sales });
+                    }
+
+                    resolve(result);
+                };
+                reader.readAsText(file);
+            });
+        }
+
+        function showImportSummary(results) {
+            const summary = document.getElementById('importSummary');
+            summary.innerHTML = `
+        <h3>Import Summary</h3>
+        <p>Initial number of customers in the database: ${results.originalCount}</p>
+        <p>Customers inserted successfully: ${results.successfulImports.length}</p>
+        <p>Resulting number of customers in the database: <span class="bold">${results.finalCount}</span></p>
+    `;
+            summary.classList.remove('hidden');
+        }
+
+        function showErrorSummary(results) {
+            const errorDiv = document.getElementById('errorSummary');
+            errorDiv.innerHTML = `
+        <h3 class="error">Error Summary</h3>
+        <p>Total processed: ${results.totalProcessed}</p>
+        <p>Not inserted: <span class="bold error">${results.errors.length}</span></p>
+        <h4>Detailed Errors:</h4>
+        <ul>
+            ${results.errors.map(e => `<li>ID ${e.id}: ${e.error}</li>`).join('')}
+        </ul>
+    `;
+            errorDiv.classList.remove('hidden');
+        }
+    </script>
+
+    <%- include('_footer') %>
